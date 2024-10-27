@@ -4,6 +4,7 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 use std::{env, io, net::SocketAddr};
@@ -28,13 +29,37 @@ const NOFILES_LIMIT: u64 = 16384;
 const DEFAULT_CACHE: &str = "cache.nixos.org";
 const DEFAULT_CONFIG_DIR: &str = "/etc/nixos";
 
+// TODO: normalized?
+type Caches = HashSet<Cache>;
+
+type NarHash = String;
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+struct Cache {
+  domain: String,
+  // FIXME: redundant + eww
+  ips: Vec<std::net::IpAddr>,
+  target_ip: Option<std::net::SocketAddr>,
+  contents: Option<BTreeMap<NarHash, Cache>>,
+  // TODO: implement, it's in the narinfo
+  size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+struct CacheNar {
+  // NOTE: not sure we are gonna need a hash
+  hash: String,
+  name: String,
+  found: bool,
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> io::Result<()> {
   let initial_time = Instant::now();
 
   let host_name: String;
-  let cache_url: String;
   let config_dir: String;
+  let cache_urls: Vec<String>;
 
   let matches = cli::build_cli().get_matches();
 
@@ -85,10 +110,21 @@ async fn main() -> io::Result<()> {
   }
 
   if let Some(cache) = matches.get_one::<String>("cache") {
-    cache_url = cache.to_owned();
+    log::trace!("got cache from argument");
+    cache_urls = vec![cache.to_owned()];
   } else {
-    cache_url = DEFAULT_CACHE.to_string();
+    log::trace!("got cache from system/default");
+    cache_urls = nix::get_system_caches();
+    // FIXME:
+    // let cache_urls_list = nix::get_system_caches();
+    // cache_urls = if cache_urls_list == Vec::<String>::new() {
+    //   vec![DEFAULT_CACHE.to_string()]
+    // } else {
+    //   cache_urls_list
+    // };
   }
+
+  log::debug!("caches found: {cache_urls:?}");
 
   if let Some(config) = matches.get_one::<String>("config") {
     config_dir = config.to_owned();
@@ -104,14 +140,6 @@ async fn main() -> io::Result<()> {
     Default::default()
   };
 
-  let domain = cache_url.to_owned();
-  let ips: Vec<std::net::IpAddr> = address_family_filter
-    .lookup_host(&domain)
-    .unwrap()
-    .collect();
-
-  log::debug!("{:#?}", &ips);
-
   // try to increase NOFILES runtime limit
   if rlimit::increase_nofile_limit(NOFILES_LIMIT).is_err() {
     log::warn!(
@@ -120,64 +148,98 @@ async fn main() -> io::Result<()> {
     );
   }
 
-  let domain_addr = SocketAddr::new(ips[0], 443);
+  let mut caches: Caches = HashSet::new();
 
-  let client = reqwest::Client::builder()
-    .dns_resolver(Arc::new(address_family_filter))
-    .resolve(&domain, domain_addr)
-    .build()
-    .unwrap();
+  for cache_url in cache_urls {
+    // FIXME: ewww ewwwwwwwwwwwwww
+    let mut cache_url = cache_url
+      .strip_prefix("https://")
+      .unwrap_or(cache_url.strip_prefix("http://").unwrap_or(&cache_url));
+    cache_url = cache_url.strip_suffix("/").unwrap_or(&cache_url);
 
-  let binding = get_requisites(
-    &host_name,
-    &config_dir,
-    matches.get_one::<String>("installable").cloned(),
-  );
+    log::warn!("{cache_url}");
+    let ips: Vec<std::net::IpAddr> = address_family_filter
+      .lookup_host(&cache_url)
+      .unwrap()
+      .collect();
+    // TODO: support http^w^w read http/https protocol, and decide correct port
+    // TODO: is taking the first ip ugly (load balancing)
+    // TODO: target_ip is redundant
+    let cache = Cache {
+      domain: cache_url.to_string(),
+      ips: ips.clone(),
+      contents: None,
+      target_ip: Some(SocketAddr::new(ips[0].clone(), 443)),
+      size: None,
+    };
+    caches.insert(cache);
+  }
 
-  let get_requisites_duration = initial_time.elapsed().as_secs();
+  //log::debug!("{caches:?}", );
 
-  println!(
-    "Found Nix Requisites in {} seconds",
-    get_requisites_duration
-  );
+  for cache in caches.clone() {
+    let client = reqwest::Client::builder()
+      .dns_resolver(Arc::new(address_family_filter))
+      // FIXME: ewww yuck eww
+      .resolve(
+        &cache.domain,
+        cache.target_ip.expect("target ip not initialized"),
+      )
+      .build()
+      .unwrap();
 
-  let network_time = Instant::now();
+    let binding = get_requisites(
+      &host_name,
+      &config_dir,
+      matches.get_one::<String>("installable").cloned(),
+    );
 
-  let lines = binding
-    .lines()
-    .map(|line| line.to_owned())
-    .collect::<Vec<_>>();
+    let get_requisites_duration = initial_time.elapsed().as_secs();
 
-  let count = lines.len();
+    println!(
+      "Found Nix Requisites in {} seconds",
+      get_requisites_duration
+    );
 
-  let tasks = lines
-    .into_iter()
-    .map(|hash| {
-      let client = client.clone();
-      let domain = domain.clone();
-      tokio::spawn(async move {
-        log::trace!("connecting to {domain} {domain_addr:#?} for {hash}");
-        net::nar_exists(client, &domain, &hash, SLIDE).await
+    let network_time = Instant::now();
+
+    let lines = binding
+      .lines()
+      .map(|line| line.to_owned())
+      .collect::<Vec<_>>();
+
+    let count = lines.len();
+
+    let tasks = lines
+      .into_iter()
+      .map(|hash| {
+        let client = client.clone();
+        // FIXME: ewww yuck eww
+        let domain = cache.domain.clone();
+        tokio::spawn(async move {
+          log::trace!("connecting to {domain} {:#?} for {hash}", cache.target_ip);
+          net::nar_exists(client, &domain, &hash, SLIDE).await
+        })
       })
-    })
-    .collect_vec();
+      .collect_vec();
 
-  let sum: usize = join_all(tasks)
-    .await
-    .into_iter()
-    .map(|result| result.unwrap())
-    .sum();
+    let sum: usize = join_all(tasks)
+      .await
+      .into_iter()
+      .map(|result| result.unwrap())
+      .sum();
 
-  println!(
-    "Checked {count} packages in {} seconds",
-    network_time.elapsed().as_secs()
-  );
-  println!(
-    "Found {:#?}/{} ({:.2}%) in cache",
-    sum,
-    count,
-    (sum as f64 / count as f64) * 100.
-  );
+    println!(
+      "Checked {count} packages in {} seconds",
+      network_time.elapsed().as_secs()
+    );
+    println!(
+      "Found {:#?}/{} ({:.2}%) in cache",
+      sum,
+      count,
+      (sum as f64 / count as f64) * 100.
+    );
+  }
 
   Ok(())
 }

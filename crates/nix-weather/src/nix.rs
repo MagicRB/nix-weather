@@ -62,6 +62,32 @@ fn requisites_to_hashes(
     .spawn()
 }
 
+/// Returns a Vec<String> of cache urls from `nix config show`
+pub fn get_system_caches() -> Vec<String> {
+  let raw_config = Command::new("nix")
+    .args(["config", "show", "--json"])
+    .output()
+    .expect("Failed to run `nix config show --json`");
+  let parsed_config: Value =
+    serde_json::from_str(&String::from_utf8(raw_config.stdout).unwrap()).unwrap();
+  parsed_config
+    .get("substituters")
+    .expect("couldn't find substituters attribute in nix.conf")
+    .get("value")
+    .expect("couldn't find value of substituters attribute in nix.conf")
+    .as_array()
+    .expect("couldn't convert substituters.value into array from nix.conf")
+    .to_owned()
+    .into_iter()
+    .map(|value| {
+      value
+        .as_str()
+        .expect("failed to parse borrowed string slcie from substituters.value array")
+        .to_string()
+    })
+    .collect()
+}
+
 pub fn get_requisites(host: &str, config_dir: &str, installable: Option<String>) -> String {
   // If the users specified an installable, we interpret that, instead of trying
   // to guess their config location.

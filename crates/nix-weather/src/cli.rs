@@ -13,11 +13,7 @@ pub fn build_cli() -> Command {
     .author(crate_authors!("\n"))
     // TODO: parse multiple installables, like e.g. build does?
     .arg(arg!([installable] "A nix installable").required(false))
-    .arg(
-      arg!(--cache <CACHE> "Check a specific cache")
-        .required(false)
-        .default_value(DEFAULT_CACHE),
-    )
+    .arg(arg!(--cache <CACHE> "Check a specific cache").required(false))
     .arg(
       arg!(-n --name <HOST> "Hostname of machine.")
         .required(false)
