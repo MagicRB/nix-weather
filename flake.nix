@@ -100,7 +100,7 @@
 
           buildInputs =
             [
-              pkgs.openssl
+              pkgs.openssl.dev
               pkgs.installShellFiles
             ]
             ++ lib.optionals pkgs.stdenv.isDarwin [
@@ -300,6 +300,9 @@
             pkgs.reuse
             pkgs.just
             lix-module.packages.${system}.default
+            # TODO: deduplicate
+            pkgs.openssl.dev
+            pkgs.pkg-config
           ];
 
           inherit (self.checks.${system}.pre-commit-check) shellHook;
