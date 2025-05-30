@@ -6,8 +6,6 @@
 
 use clap::{arg, command, crate_authors, value_parser, ArgAction, ArgGroup, Command};
 
-const DEFAULT_CACHE: &str = "cache.nixos.org";
-
 pub fn build_cli() -> Command {
   command!()
     .author(crate_authors!("\n"))

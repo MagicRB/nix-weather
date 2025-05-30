@@ -26,7 +26,6 @@ const SLIDE: u64 = 100;
 // Open files limit to try to set
 const NOFILES_LIMIT: u64 = 16384;
 
-const DEFAULT_CACHE: &str = "cache.nixos.org";
 const DEFAULT_CONFIG_DIR: &str = "/etc/nixos";
 
 // TODO: normalized?
