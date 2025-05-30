@@ -43,22 +43,8 @@ struct Cache {
   size: Option<u64>,
 }
 
-impl Cache {
-  fn pick_ip(self) -> Option<std::net::SocketAddr> {
-    // TODO: is taking the first ip ugly (load balancing)
-    Some(SocketAddr::new(self.ips[0].clone(), 443))
-  }
-}
-
-#[derive(Debug, Clone, Eq, Hash, PartialEq)]
-struct CacheNar {
-  // NOTE: not sure we are gonna need a hash
-  hash: String,
-  name: String,
-  found: bool,
-}
-
 #[tokio::main(flavor = "multi_thread")]
+#[allow(clippy::too_many_lines)]
 async fn main() -> io::Result<()> {
   let initial_time = Instant::now();
 
@@ -66,7 +52,7 @@ async fn main() -> io::Result<()> {
   let config_dir: String;
   let cache_urls: Vec<String>;
 
-  let matches = cli::build_cli().get_matches();
+  let matches = cli::build().get_matches();
 
   // If the users inputs more -v flags than we have log levels, send them a
   // message informing them.
@@ -85,13 +71,13 @@ async fn main() -> io::Result<()> {
     4 => env::set_var("RUST_LOG", "trace"),
     _ => {
       very_bose = true;
-      env::set_var("RUST_LOG", "trace")
+      env::set_var("RUST_LOG", "trace");
     }
   }
 
   // The -L flag, to give a more nix3 feel
   if matches.get_flag("printBuildLogs") {
-    env::set_var("RUST_LOG", "trace")
+    env::set_var("RUST_LOG", "trace");
   }
 
   if matches.get_flag("timestamp") {
@@ -142,7 +128,7 @@ async fn main() -> io::Result<()> {
   } else if matches.get_flag("only-ipv6") {
     AddressFamilyFilter::OnlyIPv6
   } else {
-    Default::default()
+    AddressFamilyFilter::default()
   };
 
   // try to increase NOFILES runtime limit
@@ -160,11 +146,11 @@ async fn main() -> io::Result<()> {
     let mut cache_url = cache_url
       .strip_prefix("https://")
       .unwrap_or(cache_url.strip_prefix("http://").unwrap_or(&cache_url));
-    cache_url = cache_url.strip_suffix("/").unwrap_or(&cache_url);
+    cache_url = cache_url.strip_suffix("/").unwrap_or(cache_url);
 
     log::warn!("{cache_url}");
     let ips: Vec<std::net::IpAddr> = address_family_filter
-      .lookup_host(&cache_url)
+      .lookup_host(cache_url)
       .unwrap()
       .collect();
     // TODO: support http^w^w read http/https protocol, and decide correct port
@@ -182,7 +168,7 @@ async fn main() -> io::Result<()> {
     println!("\nChecking {}", cache.domain);
     let client = reqwest::Client::builder()
       .dns_resolver(Arc::new(address_family_filter))
-      .resolve(&cache.domain, SocketAddr::new(cache.ips[0].clone(), 443))
+      .resolve(&cache.domain, SocketAddr::new(cache.ips[0], 443))
       .build()
       .unwrap();
 
@@ -194,16 +180,13 @@ async fn main() -> io::Result<()> {
 
     let get_requisites_duration = initial_time.elapsed().as_secs();
 
-    println!(
-      "Found Nix Requisites in {} seconds",
-      get_requisites_duration
-    );
+    println!("Found Nix Requisites in {get_requisites_duration} seconds");
 
     let network_time = Instant::now();
 
     let lines = binding
       .lines()
-      .map(|line| line.to_owned())
+      .map(std::borrow::ToOwned::to_owned)
       .collect::<Vec<_>>();
 
     let count = lines.len();
@@ -214,7 +197,7 @@ async fn main() -> io::Result<()> {
         let client = client.clone();
         // FIXME: ewww yuck eww
         let domain = cache.domain.clone();
-        let ip = cache.ips[0].clone();
+        let ip = cache.ips[0];
         tokio::spawn(async move {
           log::trace!("connecting to {domain} {:#?} for {hash}", ip);
           net::nar_exists(client, &domain, &hash, SLIDE).await
@@ -232,12 +215,11 @@ async fn main() -> io::Result<()> {
       "Checked {count} packages in {} seconds",
       network_time.elapsed().as_secs()
     );
-    println!(
-      "Found {:#?}/{} ({:.2}%) in cache",
-      sum,
-      count,
-      (sum as f64 / count as f64) * 100.
-    );
+
+    #[allow(clippy::cast_precision_loss)]
+    let percentage = (sum as f64 / count as f64) * 100.;
+
+    println!("Found {sum:#?}/{count} ({percentage:.2}%) in cache");
   }
 
   Ok(())

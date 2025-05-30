@@ -17,10 +17,7 @@ fn get_config_drv_path(host: &str, config_dir: &str) -> std::io::Result<std::pro
     .args([
       "build",
       "--quiet",
-      &format!(
-        "./#nixosConfigurations.{}.config.system.build.toplevel",
-        host
-      ),
+      &format!("./#nixosConfigurations.{host}.config.system.build.toplevel"),
       "--dry-run",
       "--json",
     ])
@@ -35,7 +32,7 @@ fn get_installable_drv_path(installable: &str) -> std::io::Result<std::process::
     .output()
 }
 
-/// Takes a drv_path and gets all it's requisites from the nix store.
+/// Takes a `drv_path` and gets all it's requisites from the nix store.
 #[inline]
 fn get_requisites_from_drv_path(drv_path: &str) -> std::io::Result<std::process::Child> {
   Command::new("nix-store")
@@ -77,8 +74,7 @@ pub fn get_system_caches() -> Vec<String> {
     .expect("couldn't find value of substituters attribute in nix.conf")
     .as_array()
     .expect("couldn't convert substituters.value into array from nix.conf")
-    .to_owned()
-    .into_iter()
+    .iter()
     .map(|value| {
       value
         .as_str()

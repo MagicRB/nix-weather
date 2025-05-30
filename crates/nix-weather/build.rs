@@ -24,7 +24,7 @@ fn main() -> Result<(), Error> {
     Some(outdir) => outdir,
   };
 
-  let mut cmd = build_cli();
+  let mut cmd = build();
   for &shell in Shell::value_variants() {
     // HACK: this is gross :(
     std::process::Command::new("mkdir")

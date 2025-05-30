@@ -6,7 +6,7 @@
 
 use clap::{arg, command, crate_authors, value_parser, ArgAction, ArgGroup, Command};
 
-pub fn build_cli() -> Command {
+pub fn build() -> Command {
   command!()
     .author(crate_authors!("\n"))
     // TODO: parse multiple installables, like e.g. build does?
