@@ -39,10 +39,16 @@ struct Cache {
   domain: String,
   // FIXME: redundant + eww
   ips: Vec<std::net::IpAddr>,
-  target_ip: Option<std::net::SocketAddr>,
   contents: Option<BTreeMap<NarHash, Cache>>,
   // TODO: implement, it's in the narinfo
   size: Option<u64>,
+}
+
+impl Cache {
+  fn pick_ip(self) -> Option<std::net::SocketAddr> {
+    // TODO: is taking the first ip ugly (load balancing)
+    Some(SocketAddr::new(self.ips[0].clone(), 443))
+  }
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
@@ -163,28 +169,21 @@ async fn main() -> io::Result<()> {
       .unwrap()
       .collect();
     // TODO: support http^w^w read http/https protocol, and decide correct port
-    // TODO: is taking the first ip ugly (load balancing)
     // TODO: target_ip is redundant
     let cache = Cache {
       domain: cache_url.to_string(),
       ips: ips.clone(),
       contents: None,
-      target_ip: Some(SocketAddr::new(ips[0].clone(), 443)),
       size: None,
     };
     caches.insert(cache);
   }
 
-  //log::debug!("{caches:?}", );
-
   for cache in caches.clone() {
+    println!("\nChecking {}", cache.domain);
     let client = reqwest::Client::builder()
       .dns_resolver(Arc::new(address_family_filter))
-      // FIXME: ewww yuck eww
-      .resolve(
-        &cache.domain,
-        cache.target_ip.expect("target ip not initialized"),
-      )
+      .resolve(&cache.domain, SocketAddr::new(cache.ips[0].clone(), 443))
       .build()
       .unwrap();
 
@@ -216,8 +215,9 @@ async fn main() -> io::Result<()> {
         let client = client.clone();
         // FIXME: ewww yuck eww
         let domain = cache.domain.clone();
+        let ip = cache.ips[0].clone();
         tokio::spawn(async move {
-          log::trace!("connecting to {domain} {:#?} for {hash}", cache.target_ip);
+          log::trace!("connecting to {domain} {:#?} for {hash}", ip);
           net::nar_exists(client, &domain, &hash, SLIDE).await
         })
       })
