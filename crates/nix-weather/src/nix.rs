@@ -84,23 +84,28 @@ pub fn get_system_caches() -> Vec<String> {
     .collect()
 }
 
+fn get_drv_path_from_json(output: std::process::Output) -> String {
+  let drv_path_json: Value =
+    serde_json::from_str(&String::from_utf8(output.stdout).unwrap()).unwrap();
+  drv_path_json[0]["drvPath"].to_string()
+}
+
 pub fn get_requisites(host: &str, config_dir: &str, installable: Option<String>) -> String {
   // If the users specified an installable, we interpret that, instead of trying
   // to guess their config location.
-  let drv_path;
-  if let Some(installable) = installable {
-    drv_path = get_installable_drv_path(&installable).unwrap();
+  let drv_path = if let Some(installable) = installable {
+    if installable.ends_with(".drv") {
+      installable
+    } else {
+      get_drv_path_from_json(get_installable_drv_path(&installable).unwrap())
+    }
   } else {
-    drv_path = get_config_drv_path(host, config_dir).unwrap();
-  }
-
-  let drv_path_json: Value =
-    serde_json::from_str(&String::from_utf8(drv_path.stdout).unwrap()).unwrap();
-  let drv_path = drv_path_json[0]["drvPath"].clone();
+    get_drv_path_from_json(get_config_drv_path(host, config_dir).unwrap())
+  };
 
   log::debug!("drv_path: {}", &drv_path);
 
-  let drv_requisites = get_requisites_from_drv_path(drv_path.as_str().unwrap()).unwrap();
+  let drv_requisites = get_requisites_from_drv_path(drv_path.as_str()).unwrap();
 
   let drv_requisite_hashes = requisites_to_hashes(drv_requisites);
 
