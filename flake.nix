@@ -7,12 +7,6 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-
-    lix-module = {
-      url = "git+https://git.lix.systems/lix-project/nixos-module?ref=main";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     crane.url = "github:ipetkov/crane";
 
     fenix = {
@@ -74,7 +68,6 @@
       rust-overlay,
       advisory-db,
       pre-commit-hooks,
-      lix-module,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -299,7 +292,6 @@
             pkgs.cargo-hakari
             pkgs.reuse
             pkgs.just
-            lix-module.packages.${system}.default
             # TODO: deduplicate
             pkgs.openssl.dev
             pkgs.pkg-config
